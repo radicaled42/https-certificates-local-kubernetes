@@ -1,0 +1,26 @@
+---
+# Client Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: client-ingress
+  namespace: default
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "pebble-issuer"
+spec:
+  rules:
+    - host: client.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: client
+                port:
+                  number: 5000
+  tls:
+    - hosts:
+        - client.example.com
+      secretName: client-tls-secret
