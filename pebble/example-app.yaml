@@ -42,7 +42,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: client
+                name: foo-service
                 port:
                   number: 8080
   tls:
