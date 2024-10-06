@@ -22,8 +22,9 @@ spec:
   selector:
     app: foo
   ports:
-  # Default port used by the image
-  - port: 8080
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -31,7 +32,7 @@ metadata:
   name: foo-ingress
   namespace: default
   annotations:
-    kubernetes.io/ingressClassName: "nginx"
+    ingressClassName: "nginx"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     cert-manager.io/cluster-issuer: "pebble-issuer"
