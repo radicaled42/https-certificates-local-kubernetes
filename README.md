@@ -1,37 +1,34 @@
-# https-certificates-local-kubernetes
+# **HTTPS Certificates in Local Kubernetes – The "Let's-Encrypt-but-Not-Quite" Adventure**
 
-So I came after the idea to simulate a CA in kubernetes by a work challenge.
-It was a simple challenge, you have a python application that you need to Dockerize, create a certificate, create a Kubernetes Job and be able to access the application. But the challenge emphazised to have a valid certificate.
+So, one day, a wild challenge appeared: Dockerize a Python app, slap on a valid certificate, deploy it in Kubernetes, and make it accessible. Oh, and the cherry on top? The certificate *has* to be trusted, so no funny business with ignoring SSL validation. Easy, right? (Spoiler: It's Kubernetes. It's never that easy.)
 
->  The client has to call the server on its three alternative names using the DNS resolution with private SSL certification (you can use openssl local auth, let's encrypt with Certbot, or whatever you prefer); the certificate has to be trusted (not skipping validation).
-The idea is to be able to simulate similar SSL certificate as Let's Encrypt with Pebble
+> The client has to call the server by its fancy alternative DNS names using private SSL certification. You can use OpenSSL, Let's Encrypt, Certbot, or whatever flavor of cryptographic pain you enjoy, as long as it’s trusted. Skipping validation? Pfft, amateurs.
 
-One could think that using a simple CA generated with openssl would be enough, but I thought that wouldn't work on kubernetes.
+### Enter **Pebble**, the Let's Encrypt Simulator
 
-I also explored the option of getting a free domain (https://www.getfreedomain.name/). But it I had many problems to work with the webhooks and cert-manager.
+Could you generate a simple CA with OpenSSL and call it a day? Sure, but where's the fun in that? We're in Kubernetes, after all. If you aren't complicating things with DNS, Ingress controllers, and containers that just won’t die, are you even DevOps-ing?
 
-While looking for a solution I found this this guide, [Simulate Let’s Encrypt certificate issuing in local Kubernetes](https://blog.manabie.io/2021/11/simulate-https-certificates-acme-k8s/).
-This document introduce me to Pebble. It's a miniature version of [Boulder](https://github.com/letsencrypt/boulder), Pebble is a small ACME test server not suited for use as a production CA.
+Instead of the vanilla approach, I opted for Pebble, a *miniature* version of [Boulder](https://github.com/letsencrypt/boulder). Pebble is like Boulder’s little sibling who doesn’t handle production but is great for messing around in your local cluster. Thanks to [this guide](https://blog.manabie.io/2021/11/simulate-https-certificates-acme-k8s/), I embarked on this glorious quest to simulate SSL certificates with the grace of a cat knocking over your coffee cup.
 
-So what is the idea:
-1. Install a kind cluster (k3d, k3s, minukube would work)
-2. Install Nginx ingress controller
-3. Modify CoreDNS
-4. Install Pebble
-5. Install your sample application (Ingress included)
-6. Pull your CA certificates
-7. Test
+Here’s the plan:
 
+1. Spin up a Kind cluster (or Minikube if you're feeling adventurous).
+2. Install Nginx Ingress (because we like things simple—right?).
+3. Hack CoreDNS (because why not).
+4. Install Pebble (the highlight of our story).
+5. Install your sample app (yes, you need an actual app).
+6. Pull your CA certificates (the most boring part).
+7. Test (hope for the best).
+   
 Easy peasy.
 So lets get going.
 
-## Configuration
+## Step 1: Install the Kind Cluster
 
-### Install kind cluster
+We start with **Kind**, you could have many other option but we will be doing with this one. 
+Anyway, follow the [Kind installation instructions](https://kind.sigs.k8s.io/docs/user/quick-start/#installation).
 
-In this step we will install kind.
-
-So basically, you need to follow the [kind installation](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
+For the **Linux folks**, here’s the magic spell:
 
 **For linux**:
 ```bash
@@ -43,17 +40,13 @@ chmod +x ./kind
 sudo mv ./kind /usr/local/bin/kind
 ```
 
-Now that we have kind installed we need to create a kind-config file.
-The kind config file hold all the configuration for the a file. You could do the same thing through command line, but it would be difficult to do it.
-You will need to expose port 80 and 443 to be able to access the application and you will need to add `node-labels: "ingress-ready=true"` to install nginx ingress controller.
+Now that we’ve summoned Kind, let’s make a **kind-config** file. It's like Kubernetes' shopping list, where you tell it what you want: ports 80 and 443 exposed, and a node-label because Nginx you need to be able to create the pods somewhere.
 
 For example:
 ```yaml
 kind: Cluster
 name: https-cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
+...
   kubeadmConfigPatches:
   - |
     kind: InitConfiguration
@@ -67,18 +60,12 @@ nodes:
   - containerPort: 443
     hostPort: 443
     protocol: TCP
-- role: worker
-- role: worker
+...
 ```
 
-Run the following command to create the cluster:
+Run `kind create cluster --config=kind-config` and voilà:
 ```bash
-kind create cluster --config=kind-config
-```
-
-You will get an output similar to this:
-```
-~/Documents/https-certificates-local-kubernetes main > kind create cluster --config kind-config
+main > kind create cluster --config kind-config
 Creating cluster "https-cluster" ...
  ✓ Ensuring node image (kindest/node:v1.31.0) 🖼 
  ✓ Preparing nodes 📦 📦 📦  
@@ -95,19 +82,21 @@ kubectl cluster-info --context kind-https-cluster
 Have a question, bug, or feature request? Let us know! https://kind.sigs.k8s.io/#community 🙂
 ```
 
-## Install Nginx ingress controller
+Now, Kubernetes is set up, and everything is working perfectly. But for now, let’s move on.
 
-We are going to need an Ingress Controller, it can be Nginx or Traefik or whatever you use.
-In this case, I'm going to use Nginx mainly because its an ingress controller for kind.
+## Step 2: Install Nginx Ingress Controller
 
-Install the Nginx Ingress controller for Kind from the following URL:
+Why Nginx? Because kind has already develop the resources definition. 
+You can download and change them or you could use some other ingress controller (like Traefik).
+
+Use this command to install it:
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+main > kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 ```
 
-This will be the output of the installation:
-```
-~/Documents/https-certificates-local-kubernetes main > kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+If everything went well (ha!), you should see:
+```bash
+main > kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 namespace/ingress-nginx created
 serviceaccount/ingress-nginx created
 serviceaccount/ingress-nginx-admission created
@@ -128,64 +117,28 @@ job.batch/ingress-nginx-admission-patch created
 ingressclass.networking.k8s.io/nginx created
 validatingwebhookconfiguration.admissionregistration.k8s.io/ingress-nginx-admission created
 
-~/Documents/https-certificates-local-kubernetes main > kubectl get pods -n ingress-nginx
+main > kubectl get pods -n ingress-nginx
 NAME                                        READY   STATUS      RESTARTS   AGE
 ingress-nginx-admission-create-52z5n        0/1     Completed   0          58s
 ingress-nginx-admission-patch-qdd78         0/1     Completed   0          58s
 ingress-nginx-controller-6b8cfc8d84-vvdrf   1/1     Running     0          58s
 ```
 
-## Modify CoreDNS
+## Step 3: Modify CoreDNS (The Hacky Part)
 
-We can modify the CoreDNS config so the internal cluster can resolve to our internal IP. I call this a good hack because it’s similar to how the domain owner needs to point the domain to the server’s IP.
+Now, we’ll do something truly DevOps-y: hack CoreDNS. Think of it as the DNS version of fixing your sink with duct tape. We're making Kubernetes pretend to know what it's doing with domain resolution.
+Because this domain doesn't exist anywhere, please look it here.
 
-1. Get your ingress controller current IP:
+First, grab the IP of your Ingress controller:
+
 ```bash
-kubectl get svc ingress-nginx-controller --no-headers -n ingress-nginx | awk '{print$3}'
+main > kubectl get svc ingress-nginx-controller --no-headers -n ingress-nginx | awk '{print$3}'
 10.96.94.238
 ```
-   
-2. Pull the current **coredns** confimap with:
-```bash
-kubectl get configmaps coredns -n kube-system -o yaml
-```
 
-3. Remove the **creationTimestamp**, **resourceVersion** and **uid** and you will get something like this:
-```yaml
-apiVersion: v1
-data:
-  Corefile: |
-    .:53 {
-        errors
-        health {
-           lameduck 5s
-        }
-        ready
-        kubernetes cluster.local in-addr.arpa ip6.arpa {
-           pods insecure
-           fallthrough in-addr.arpa ip6.arpa
-           ttl 30
-        }
-        prometheus :9153
-        forward . /etc/resolv.conf {
-           max_concurrent 1000
-        }
-        cache 30
-        loop
-        reload
-        loadbalance
-    }
-kind: ConfigMap
-metadata:
-  name: coredns
-  namespace: kube-system
-```
+Then, convince CoreDNS to resolve `foo.example.com` to this IP. Add the CoreDNS configfile the information of the new host:
 
-4. Add the host you want to test (foo.example.com) on the config file:
 ```yaml
-apiVersion: v1
-data:
-  Corefile: |
     .:53 {
         errors
         health {
@@ -213,49 +166,38 @@ data:
            }
            whoami
     }
-kind: ConfigMap
-metadata:
-  name: coredns
-  namespace: kube-system
 ```
 
-5. Apply you new configuration
+Apply the changes and restart CoreDNS. (Or just kill all the pods and let Kubernetes handle the mess this is development)
+
 ```bash
-kubectl apply -f coredns -n kube-system
+main > kubectl delete pod -n kube-system --wait $(kubectl get pods -n kube-system | grep coredns)
 ```
 
-6. Restart the coredns pods, give this is a dev environment you could kill all the ports at the same time.
-```bash
-kubectl delete pod -n kube-system --wait $(kubectl get pods -n kube-system | grep coredns | awk '{print$1}')
-```
+## Step 4: Install Pebble (The Cool Part)
 
-## Install Pebble
+Finally, we get to the fun bit: installing Pebble. But first, you need **cert-manager**. Let's install it with [**Helm**](https://helm.sh/docs/intro/install/) because why make things easy?
 
-Lets start with the cool part :P 
-To install Pebble you first need the Cert-Manager CRDs. I will install the complete cert-manager along with the CRDs just to be on the safe side.
-
-1. First install [**helm**](https://helm.sh/docs/intro/install/):
-```bash
-curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-chmod 700 get_helm.sh
-./get_helm.sh
-```
-
-2. Install **cert-manager**:
 ```bash
 helm repo add jetstack https://charts.jetstack.io --force-update
 helm repo update
 helm upgrade --install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set crds.enabled=true
 ```
 
-3. Pebble already offers a docker image to use (ghcr.io/letsencrypt/pebble:latest) so you only need to create the deployment resource.
+Next, deploy Pebble.
+I have attached the Pebble resources to the **pebble** directory on this repo. 
+Otherwise you can download them from the [original] (https://github.com/manabie-com/manabie-com.github.io/blob/main/content/posts/simulate-https-certificates-acme-k8s/examples/pebble.yaml)
+Or you can create them its not difficult.
+I have added the **15000** service, because with the latest version of the docker image **sh** is not available.
+
 ```bash
 cd ./pebble
 kubectl apply -f pebble.yaml
 kubectl get pod
 ```
 
-By now you should already have a installed **cert-manager** and **pebble** and it would look something like this:
+If all went well (don’t hold your breath), **Pebble** will be up and running, looking very smug with its fake certificates.
+
 ```bash
 ~/Documents/https-certificates-local-kubernetes main > kubectl get pods -n cert-manager
 NAME                                     READY   STATUS    RESTARTS   AGE
@@ -267,24 +209,22 @@ cert-manager-webhook-78bd84d46b-bxt29    1/1     Running   0          88s
 pebble-585fd5f6c-m4n4j   1/1     Running   0          54s
 ```
 
-The first thing you'll need to configure after you've installed cert-manager is an Issuer or a ClusterIssuer. These are resources that represent certificate authorities (CAs) able to sign certificates in response to certificate signing requests.
+The first thing you'll need to configure after you've installed **cert-manager** and **Pebble** is an Issuer or a ClusterIssuer. These are resources that represent certificate authorities (CAs) able to sign certificates in response to certificate signing requests.
 
-4. Install pebble cluster-issuer
+Install pebble cluster-issuer
+
 ```bash
 cd ./pebble
 kubectl apply -f ./pebble-issuer.yaml
-```
 
-```bash
-~/Documents/https-certificates-local-kubernetes main > kubectl get clusterissuers.cert-manager.io --all-namespaces
+main > kubectl get clusterissuers.cert-manager.io --all-namespaces
 NAME            READY   AGE
 pebble-issuer   True    6s
 ```
 
-## Install your sample application
+## Step 5: Install the Sample Application
 
-Now comes the part for the application installation. It could be anything an nginx application or some process. But the idea is to have an ingress that we can hit.
-So for this example, I'm going to use the kind [application example](https://kind.sigs.k8s.io/docs/user/ingress/).
+Now for the app—something small and simple. In this case, we're deploying a barebones app and adding an **Ingress** with TLS enabled. I'm going to use the kind [application example](https://kind.sigs.k8s.io/docs/user/ingress/).
 
 If you notice it a little different from **kind** example. I have removed all the **bar** installation, as we don't need to test multiple host at the time.
 
@@ -343,7 +283,7 @@ spec:
       secretName: foo-tls-secret
 ```
 
-Also, my **ingress** changed. I have added a host (foo.example.com) and a tls section to create the new certificate.
+Also, my **ingress** changed. I have added a host (foo.example.com) and a TLS section has been enabled.
 I have also added the **cluster-issuer** annotation with the name of of our pebble issuer.
 
 ```yaml
@@ -353,17 +293,15 @@ I have also added the **cluster-issuer** annotation with the name of of our pebb
       secretName: foo-tls-secret
 ```
 
-To implement this example app:
-1. Navigate to the pebble directory
-2. Install the new app
+Apply the changes, cross your fingers, and let Kubernetes do its thing.
 
 ```bash
-kubectl apply -f example-app.yaml
+main > kubectl apply -f example-app.yaml
 ```
 
 You will get this output:
 ```bash
-~/Documents/https-certificates-local-kubernetes main > kubectl apply -f example-app.yaml
+main > kubectl apply -f example-app.yaml
 pod/foo-app created
 service/foo-service created
 ingress.networking.k8s.io/foo-ingress created
@@ -371,20 +309,20 @@ ingress.networking.k8s.io/foo-ingress created
 
 Also, if you check the CRDs, you will find changes on **certificaterequests**, **certificates** and **orders**:
 ```bash
-~/Documents/https-certificates-local-kubernetes main > kubectl get certificaterequests --all-namespaces
+main > kubectl get certificaterequests --all-namespaces
 NAMESPACE   NAME               APPROVED   DENIED   READY   ISSUER          REQUESTOR                                         AGE
 default     foo-tls-secret-1   True                True    pebble-issuer   system:serviceaccount:cert-manager:cert-manager   5m40s
 
-~/Documents/https-certificates-local-kubernetes main > kubectl get certificates --all-namespaces
+main > kubectl get certificates --all-namespaces
 NAMESPACE   NAME             READY   SECRET           AGE
 default     foo-tls-secret   True    foo-tls-secret   6m7s
 
-~/Documents/https-certificates-local-kubernetes main > kubectl get orders --all-namespaces
+main > kubectl get orders --all-namespaces
 NAMESPACE   NAME                          STATE   AGE
 default     foo-tls-secret-1-3991384144   valid   6m37s
 ```
 
-### Change your host file
+### First Test
 
 First thing first. 
 This is a dev environment and you will need to change your host file to allow **127.0.0.1** to be accessed as **foo.example.com**. Because we are not hosting it anywhere but our own computer.
@@ -415,45 +353,37 @@ how to fix it, please visit the web page mentioned above.
 
 Let continue with the next step to solve this issue.
 
-## Pull your CA certificates
+## Step 6: Get Your CA Certificates
 
-As I mention before, this is an Internal CA, so the certificates are not trusted by anyone.
-To be able to test your application, you will need to pull the **intermediate** and **root** certificates and import them to your browser or **cacerts** directory. 
+Now comes the fun part: pulling the **intermediate** and **root** certificates from Pebble, because no one trusts your internal CA.
+
 You can find pebble information [here](https://github.com/letsencrypt/pebble?tab=readme-ov-file#ca-root-and-intermediate-certificates) on the location of the **intermediate** and **root** certs.
 
 Depending on the pebble version you will be able to get the certificates directly with the instructions below. 
 Another option is to change the service for pebble-mgmt from **ClusterIP** to **NodePort** and access directly or you could start a **pod helper** with (`kubectl run my-shell --rm -i --tty --image ubuntu -- bash`) and access them from the cluster network.
 There are many ways, you are grown up test them.
 
-1. Get the Intermediate Certificate:
+Get the Intermediate and root certificates
+
 ```bash
 kubectl exec deploy/pebble -- sh -c "apk add curl > /dev/null; curl -ksS https://localhost:15000/intermediates/0" > pebble.intermediate.pem.crt
-```
 
-2. Get the Root Certificate:
-```bash
 kubectl exec deploy/pebble -- sh -c "apk add curl > /dev/null; curl -ksS https://localhost:15000/roots/0" > pebble.root.pem.crt
 ```
 
-3. Combine the chain certificates:
+Combine the certificates like a pro:
+
 ```bash
 cat pebble.intermediate.pem.crt pebble.root.pem.crt > pebble.root.crt
 ```
 
-At this point you could import the **pebble.root.crt** to any browser or you could import it to **/etc/ssl/cacerts** to test it with a terminal.
+Now, import the certificates into your browser or your OS's CA store. You’re almost there!
 
-## Test
+## Step 7: Test and Rejoice (Maybe)
 
-So after a few hours, unless you followed the instructions we are at the testing moment :D.
+Finally, test your app! Use `curl` with the `--cacert` flag to verify the certificate.
 
-So before testing lets make sure we imported the **pebble.root.crt** to our **/etc/ssl/cacerts**
-Well, there isn't much science there:
-
-```bash
-sudo cp pebble.root.crt /etc/ssl/certs/ca-certificates.crt
-```
-
-Testing it with curl is not much different, you will only need to add the **cacerts** option. Depending on your configuration you could have it by default, but never too sure.
+If all goes well, you’ll see something like:
 
 ```bash
 /tmp > curl --cacert /etc/ssl/certs/ca-certificates.crt  https://foo.example.com
@@ -464,9 +394,10 @@ So, this doesn't say much, basically we can access the url.
 But if you pay attention, I'm accessing it using **https** so its going to request the certificate and it is trusted.
 
 Below you can see the same request using the -v (verbose) in curl to get more information.
-There is a successful **TLS** handshare and the certificate is up to date and **ok**.
+There is a successful **TLS** handshare and the certificate is up to date and `SL certificate verify ok`.
+
 ```bash
-/tmp > curl -v --cacert /etc/ssl/certs/ca-certificates.crt  https://foo.example.com
+main > curl -v --cacert /etc/ssl/certs/ca-certificates.crt  https://foo.example.com
 *   Trying 127.0.0.1:443...
 * Connected to foo.example.com (127.0.0.1) port 443 (#0)
 * ALPN: offers h2,http/1.1
@@ -514,7 +445,8 @@ There is a successful **TLS** handshare and the certificate is up to date and **
 NOW: 2024-10-06 16:24:57.596645011 +0000 UTC m=+4596.946651119% 
 ```
 
-## In conclusion
+If not, well, Kubernetes can be fickle. Double-check your CoreDNS settings, cert-manager, and Pebble configuration. Or, as is tradition, blame DNS.
 
-There are many method to make this kind of test. This one is one more.
-The interesting thing about this one, is that you can correlate with a production evironment. Many environment rely on cert-manager using let's encrypt with the Ingress. 
+## Conclusion
+
+There are a million ways to simulate SSL in Kubernetes. This one is just one more. The best part? You’ve basically recreated a production-like environment with cert-manager, Ingress, and a Let's-Encrypt-but-not-quite cert issuance system. And hey, it only took a few hours of troubleshooting, head-scratching, and maybe a little crying.
