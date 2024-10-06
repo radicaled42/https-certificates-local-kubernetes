@@ -31,7 +31,7 @@ metadata:
   name: foo-ingress
   namespace: default
   annotations:
-    kubernetes.io/ingress.class: "nginx"
+    kubernetes.io/ingressClassName: "nginx"
     cert-manager.io/cluster-issuer: "pebble-issuer"
 spec:
   rules:
