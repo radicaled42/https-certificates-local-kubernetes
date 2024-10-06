@@ -30,7 +30,6 @@ Anyway, follow the [Kind installation instructions](https://kind.sigs.k8s.io/doc
 
 For the **Linux folks**, here’s the magic spell:
 
-**For linux**:
 ```bash
 # For AMD64 / x86_64
 [ $(uname -m) = x86_64 ] && curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
@@ -136,7 +135,7 @@ main > kubectl get svc ingress-nginx-controller --no-headers -n ingress-nginx | 
 10.96.94.238
 ```
 
-Then, convince CoreDNS to resolve `foo.example.com` to this IP. Add the CoreDNS configfile the information of the new host:
+Then, convince CoreDNS to resolve `foo.example.com` to this IP. Add the CoreDNS configmap the information of the new host:
 
 ```yaml
     .:53 {
@@ -176,7 +175,8 @@ main > kubectl delete pod -n kube-system --wait $(kubectl get pods -n kube-syste
 
 ## Step 4: Install Pebble (The Cool Part)
 
-Finally, we get to the fun bit: installing Pebble. But first, you need **cert-manager**. Let's install it with [**Helm**](https://helm.sh/docs/intro/install/) because why make things easy?
+Finally, we get to the fun bit: installing Pebble. But first, you need **cert-manager**. Actually you only need the **CRDs**, but why wasting time looking on how to [install](https://github.com/cert-manager/cert-manager/tree/master/deploy/crds) them. 
+Let's install it with [**Helm**](https://helm.sh/docs/intro/install/) because why make things easy?
 
 ```bash
 helm repo add jetstack https://charts.jetstack.io --force-update
@@ -184,11 +184,11 @@ helm repo update
 helm upgrade --install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace --set crds.enabled=true
 ```
 
-Next, deploy Pebble.
-I have attached the Pebble resources to the **pebble** directory on this repo. 
-Otherwise you can download them from the [original] (https://github.com/manabie-com/manabie-com.github.io/blob/main/content/posts/simulate-https-certificates-acme-k8s/examples/pebble.yaml)
-Or you can create them its not difficult.
-I have added the **15000** service, because with the latest version of the docker image **sh** is not available.
+Next, deploy Pebble.  
+I have attached the Pebble resources to the **pebble** directory on this repo.  
+Otherwise you can download them from the [original](https://github.com/manabie-com/manabie-com.github.io/blob/main/content/posts/simulate-https-certificates-acme-k8s/examples/pebble.yaml) source.  
+Or you can create them its not difficult.  
+I have also added the **mgmt** service (port 15000), because with the latest version of the docker image **sh** is not available.
 
 ```bash
 cd ./pebble
@@ -199,13 +199,13 @@ kubectl get pod
 If all went well (don’t hold your breath), **Pebble** will be up and running, looking very smug with its fake certificates.
 
 ```bash
-~/Documents/https-certificates-local-kubernetes main > kubectl get pods -n cert-manager
+main > kubectl get pods -n cert-manager
 NAME                                     READY   STATUS    RESTARTS   AGE
 cert-manager-7b9875fbcc-b2mmv            1/1     Running   0          88s
 cert-manager-cainjector-948d47c6-6sjbj   1/1     Running   0          88s
 cert-manager-webhook-78bd84d46b-bxt29    1/1     Running   0          88s
 
-~/Documents/https-certificates-local-kubernetes main > kubectl get pods -n default | grep pebble
+main > kubectl get pods -n default | grep pebble
 pebble-585fd5f6c-m4n4j   1/1     Running   0          54s
 ```
 
@@ -329,20 +329,15 @@ This is a dev environment and you will need to change your host file to allow **
 
 **For example:**
 ```bash
-~/Documents/https-certificates-local-kubernetes main > more /etc/                                                                        danielbianco@eureka
-##
-# Host Database
-#
-# localhost is used to configure the loopback interface
-# when the system is booting.  Do not change this entry.
-##
+main > more /etc/hosts
+
 127.0.0.1       localhost foo.example.com
 ```
 
 So far so good, but if you test your application will find that the url is not trusted.
 
 ```bash
-~/Documents/https-certificates-local-kubernetes main > curl https://foo.example.com/
+main > curl https://foo.example.com/
 curl: (60) SSL certificate problem: unable to get local issuer certificate
 More details here: https://curl.se/docs/sslcerts.html
 
@@ -359,7 +354,7 @@ Now comes the fun part: pulling the **intermediate** and **root** certificates f
 
 You can find pebble information [here](https://github.com/letsencrypt/pebble?tab=readme-ov-file#ca-root-and-intermediate-certificates) on the location of the **intermediate** and **root** certs.
 
-Depending on the pebble version you will be able to get the certificates directly with the instructions below. 
+Depending on the Pebble version you will be able to get the certificates directly with the instructions below. 
 Another option is to change the service for pebble-mgmt from **ClusterIP** to **NodePort** and access directly or you could start a **pod helper** with (`kubectl run my-shell --rm -i --tty --image ubuntu -- bash`) and access them from the cluster network.
 There are many ways, you are grown up test them.
 
@@ -374,7 +369,7 @@ kubectl exec deploy/pebble -- sh -c "apk add curl > /dev/null; curl -ksS https:/
 Combine the certificates like a pro:
 
 ```bash
-cat pebble.intermediate.pem.crt pebble.root.pem.crt > pebble.root.crt
+cat pebble.intermediate.pem.crt pebble.root.pem.crt > ca-certificates.crt
 ```
 
 Now, import the certificates into your browser or your OS's CA store. You’re almost there!
@@ -450,3 +445,6 @@ If not, well, Kubernetes can be fickle. Double-check your CoreDNS settings, cert
 ## Conclusion
 
 There are a million ways to simulate SSL in Kubernetes. This one is just one more. The best part? You’ve basically recreated a production-like environment with cert-manager, Ingress, and a Let's-Encrypt-but-not-quite cert issuance system. And hey, it only took a few hours of troubleshooting, head-scratching, and maybe a little crying.
+
+If you like it share it.  
+If you don't like it share it anyway and tell me how to improve it.
