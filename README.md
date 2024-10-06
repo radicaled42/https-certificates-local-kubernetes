@@ -281,12 +281,12 @@ NAME            READY   AGE
 pebble-issuer   True    6s
 ```
 
-## Install your sample application (Ingress included)
+## Install your sample application
 
 Now comes the part for the application installation. It could be anything an nginx application or some process. But the idea is to have an ingress that we can hit.
 So for this example, I'm going to use the kind [application example](https://kind.sigs.k8s.io/docs/user/ingress/).
 
-If you notice it a little different from **kind** example.
+If you notice it a little different from **kind** example. I have removed all the **bar** installation, as we don't need to test multiple host at the time.
 
 ```yaml
 kind: Pod
@@ -323,9 +323,9 @@ metadata:
   name: foo-ingress
   namespace: default
   annotations:
-    kubernetes.io/ingress.class: "nginx"
     cert-manager.io/cluster-issuer: "pebble-issuer"
 spec:
+  ingressClassName: "nginx"
   rules:
     - host: foo.example.com
       http:
@@ -343,8 +343,8 @@ spec:
       secretName: foo-tls-secret
 ```
 
-I'm just using the **foo-app**.
-Also, my ingress changed. I have added a host(host: foo.example.com) and a tls section.
+Also, my **ingress** changed. I have added a host (foo.example.com) and a tls section to create the new certificate.
+I have also added the **cluster-issuer** annotation with the name of of our pebble issuer.
 
 ```yaml
   tls:
@@ -366,7 +366,6 @@ You will get this output:
 ~/Documents/https-certificates-local-kubernetes main > kubectl apply -f example-app.yaml
 pod/foo-app created
 service/foo-service created
-Warning: annotation "kubernetes.io/ingress.class" is deprecated, please use 'spec.ingressClassName' instead
 ingress.networking.k8s.io/foo-ingress created
 ```
 
@@ -387,8 +386,10 @@ default     foo-tls-secret-1-3991384144   valid   6m37s
 
 ### Change your host file
 
-First thing first. This is a dev environment and you will need to change your host file to allow **127.0.0.1** to be accessed as **foo.example.com**
+First thing first. 
+This is a dev environment and you will need to change your host file to allow **127.0.0.1** to be accessed as **foo.example.com**. Because we are not hosting it anywhere but our own computer.
 
+**For example:**
 ```bash
 ~/Documents/https-certificates-local-kubernetes main > more /etc/                                                                        danielbianco@eureka
 ##
@@ -412,29 +413,108 @@ establish a secure connection to it. To learn more about this situation and
 how to fix it, please visit the web page mentioned above.
 ```
 
+Let continue with the next step to solve this issue.
+
 ## Pull your CA certificates
 
 As I mention before, this is an Internal CA, so the certificates are not trusted by anyone.
 To be able to test your application, you will need to pull the **intermediate** and **root** certificates and import them to your browser or **cacerts** directory. 
-You can find pebble information [here](https://github.com/letsencrypt/pebble?tab=readme-ov-file#ca-root-and-intermediate-certificates).
+You can find pebble information [here](https://github.com/letsencrypt/pebble?tab=readme-ov-file#ca-root-and-intermediate-certificates) on the location of the **intermediate** and **root** certs.
 
-Depending on the pebble version you will be able to get the certificates directly.
-Otherwise you will need another pod and instead of using **localhost** you will need to use **pebble-mgmt** as host.
+Depending on the pebble version you will be able to get the certificates directly with the instructions below. 
+Another option is to change the service for pebble-mgmt from **ClusterIP** to **NodePort** and access directly or you could start a **pod helper** with (`kubectl run my-shell --rm -i --tty --image ubuntu -- bash`) and access them from the cluster network.
+There are many ways, you are grown up test them.
 
 1. Get the Intermediate Certificate:
-
 ```bash
 kubectl exec deploy/pebble -- sh -c "apk add curl > /dev/null; curl -ksS https://localhost:15000/intermediates/0" > pebble.intermediate.pem.crt
 ```
 
 2. Get the Root Certificate:
-
 ```bash
 kubectl exec deploy/pebble -- sh -c "apk add curl > /dev/null; curl -ksS https://localhost:15000/roots/0" > pebble.root.pem.crt
 ```
 
 3. Combine the chain certificates:
-
 ```bash
 cat pebble.intermediate.pem.crt pebble.root.pem.crt > pebble.root.crt
 ```
+
+At this point you could import the **pebble.root.crt** to any browser or you could import it to **/etc/ssl/cacerts** to test it with a terminal.
+
+## Test
+
+So after a few hours, unless you followed the instructions we are at the testing moment :D.
+
+So before testing lets make sure we imported the **pebble.root.crt** to our **/etc/ssl/cacerts**
+Well, there isn't much science there:
+
+```bash
+sudo cp pebble.root.crt /etc/ssl/certs/ca-certificates.crt
+```
+
+Testing it with curl is not much different, you will only need to add the **cacerts** option. Depending on your configuration you could have it by default, but never too sure.
+
+```bash
+/tmp > curl --cacert /etc/ssl/certs/ca-certificates.crt  https://foo.example.com
+NOW: 2024-10-06 15:54:09.135725422 +0000 UTC m=+2747.085528173%   
+```
+
+So, this doesn't say much, basically we can access the url. 
+But if you pay attention, I'm accessing it using **https** so its going to request the certificate and it is trusted.
+
+Below you can see the same request using the -v (verbose) in curl to get more information.
+There is a successful **TLS** handshare and the certificate is up to date and **ok**.
+```bash
+/tmp > curl -v --cacert /etc/ssl/certs/ca-certificates.crt  https://foo.example.com
+*   Trying 127.0.0.1:443...
+* Connected to foo.example.com (127.0.0.1) port 443 (#0)
+* ALPN: offers h2,http/1.1
+* TLSv1.2 (OUT), TLS handshake, Client hello (1):
+*  CAfile: /etc/ssl/certs/ca-certificates.crt
+*  CApath: none
+* TLSv1.2 (IN), TLS handshake, Server hello (2):
+* TLSv1.2 (IN), TLS handshake, Certificate (11):
+* TLSv1.2 (IN), TLS handshake, Server key exchange (12):
+* TLSv1.2 (IN), TLS handshake, Server finished (14):
+* TLSv1.2 (OUT), TLS handshake, Client key exchange (16):
+* TLSv1.2 (OUT), TLS change cipher, Change cipher spec (1):
+* TLSv1.2 (OUT), TLS handshake, Finished (20):
+* TLSv1.2 (IN), TLS change cipher, Change cipher spec (1):
+* TLSv1.2 (IN), TLS handshake, Finished (20):
+* SSL connection using TLSv1.2 / ECDHE-RSA-AES128-GCM-SHA256
+* ALPN: server accepted h2
+* Server certificate:
+*  subject: [NONE]
+*  start date: Oct  6 14:56:38 2024 GMT
+*  expire date: Oct  6 14:56:37 2029 GMT
+*  subjectAltName: host "foo.example.com" matched cert's "foo.example.com"
+*  issuer: CN=Pebble Intermediate CA 767be1
+*  SSL certificate verify ok.
+* using HTTP/2
+* h2 [:method: GET]
+* h2 [:scheme: https]
+* h2 [:authority: foo.example.com]
+* h2 [:path: /]
+* h2 [user-agent: curl/8.1.2]
+* h2 [accept: */*]
+* Using Stream ID: 1 (easy handle 0x7fbb48814800)
+> GET / HTTP/2
+> Host: foo.example.com
+> User-Agent: curl/8.1.2
+> Accept: */*
+> 
+< HTTP/2 200 
+< date: Sun, 06 Oct 2024 16:24:57 GMT
+< content-type: text/plain; charset=utf-8
+< content-length: 62
+< strict-transport-security: max-age=31536000; includeSubDomains
+< 
+* Connection #0 to host foo.example.com left intact
+NOW: 2024-10-06 16:24:57.596645011 +0000 UTC m=+4596.946651119% 
+```
+
+## In conclusion
+
+There are many method to make this kind of test. This one is one more.
+The interesting thing about this one, is that you can correlate with a production evironment. Many environment rely on cert-manager using let's encrypt with the Ingress. 

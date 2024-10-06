@@ -32,8 +32,6 @@ metadata:
   name: foo-ingress
   namespace: default
   annotations:
-    #nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    #nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
     cert-manager.io/cluster-issuer: "pebble-issuer"
 spec:
   ingressClassName: "nginx"
