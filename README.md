@@ -62,9 +62,9 @@ name: https-cluster
 ...
 ```
 
-Run `kind create cluster --config=kind-config` and voilà:
+Run `kind create cluster --config=./kind/kind-config` and voilà:
 ```bash
-main > kind create cluster --config kind-config
+main > kind create cluster --config ./kind/kind-config
 Creating cluster "https-cluster" ...
  ✓ Ensuring node image (kindest/node:v1.31.0) 🖼 
  ✓ Preparing nodes 📦 📦 📦  
@@ -296,12 +296,12 @@ I have also added the **cluster-issuer** annotation with the name of of our pebb
 Apply the changes, cross your fingers, and let Kubernetes do its thing.
 
 ```bash
-main > kubectl apply -f example-app.yaml
+main > kubectl apply -f ./app/example-app.yaml
 ```
 
 You will get this output:
 ```bash
-main > kubectl apply -f example-app.yaml
+main > kubectl apply -f ./app/example-app.yaml
 pod/foo-app created
 service/foo-service created
 ingress.networking.k8s.io/foo-ingress created
